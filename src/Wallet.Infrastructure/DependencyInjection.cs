@@ -6,7 +6,7 @@ using Wallet.Infrastructure.Data;
 namespace Wallet.Infrastructure;
 
 /// <summary>
-/// Registration for the infrastructure layer (ADO.NET connection factory today, EF Core and repositories later).
+/// Registration for the infrastructure layer (ADO.NET connection factory today, repositories and the migration runner later).
 /// </summary>
 public static class DependencyInjection
 {

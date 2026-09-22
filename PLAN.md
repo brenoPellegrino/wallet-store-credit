@@ -10,15 +10,15 @@ The goal is a portfolio project that proves depth in SQL, ADO.NET and stored pro
 - SQL Server depth: a well-designed schema (keys, constraints, data types), indexes including a covering index, and execution-plan analysis documented in the README.
 - Transactions with commit and rollback so a balance is never left half-updated (ACID in practice).
 - Idempotency and concurrency safety: a ledger keyed by a unique `EventId` so repeated or concurrent requests never double-spend.
-- Schema versioning that shows both the raw-SQL and ORM levels.
+- Schema versioning at the raw-SQL level: a hand-rolled ADO.NET migration runner over numbered `.sql` scripts.
 - xUnit tests on the money logic.
 - A strong README as the interview centerpiece.
 
 ## Key decisions
 
 - **Stack**: C# / .NET 8, ASP.NET Core Web API (controllers), SQL Server.
-- **Data access split**: raw ADO.NET for every money mutation (credit, debit, transfer). EF Core for reads and wallet creation. This shows both levels without letting the ORM touch the critical money paths.
-- **Migrations**: a hand-rolled ADO.NET migration runner (a `__SchemaVersions` table plus numbered `.sql` scripts run inside a `SqlTransaction`). This adds more raw SQL and ADO.NET to the showcase. Stored procedures and indexes are versioned as SQL scripts. An optional small EF Core migrations demo can be added in M6 if we want that specific bullet.
+- **Data access**: raw ADO.NET everywhere. Every money mutation (credit, debit, transfer) runs through stored procedures called over ADO.NET. Reads (wallet lookup, balance, statement) are hand-written SQL over `SqlCommand`/`SqlDataReader`. There is no ORM. The balance read is the most interesting query in the project (an expiration-filtered per-currency aggregate that the M4 plan study profiles), so it stays hand-written and deterministic rather than ORM-generated. This keeps the project coherent around a single data-access story: SQL depth, end to end.
+- **Migrations**: a hand-rolled ADO.NET migration runner (a `__schema_versions` table plus numbered `.sql` scripts run inside a `SqlTransaction`). Tables, stored procedures and indexes are all versioned as SQL scripts.
 - **Money type**: `DECIMAL(19,4)` in the database and `decimal` in C#, never `float`.
 - **Local database**: SQL Server running in DBngin on macOS. Connection string lives in `appsettings.Development.json` (or user secrets). LocalDB is not used because it is Windows only.
 
@@ -33,7 +33,7 @@ The goal is a portfolio project that proves depth in SQL, ADO.NET and stored pro
 
 - **M0 Scaffold (done)**: solution and projects, ADO.NET connection factory, health endpoints, configuration, this plan.
 - **M1 Schema design (design only, no code)**: agree tables, keys, columns, data types, constraints and indexes. Document the reasoning in `docs/schema.md`. Reviewed and approved before any implementation.
-- **M2 MVP implementation**: the ADO.NET migration runner, the tables from M1, `usp_CreditWallet`, create and get wallet via EF, credit and debit via ADO.NET, `EventId` idempotency, first xUnit tests (Money type plus an idempotent-replay integration test).
+- **M2 MVP implementation**: the ADO.NET migration runner, the tables from M1, `usp_CreditWallet`, create and get wallet via ADO.NET, credit via the proc and debit via ADO.NET, `EventId` idempotency, first xUnit tests (Money type plus an idempotent-replay integration test).
 - **M3 Debit proc and statement**: `usp_DebitWallet` with insufficient-funds handling, `usp_GetWalletStatement`, the covering index, tests for overdraft and idempotent debit.
 - **M4 Concurrency and performance**: a parallel double-spend test, then the execution-plan study (before and after the covering index) captured in `docs/execution-plans/`.
 - **M5 Transfer**: a client-side `SqlTransaction` across two wallets, with commit and rollback tests.
@@ -50,7 +50,7 @@ wallet/
   src/
     Wallet.Api/            ASP.NET Core Web API
     Wallet.Core/           domain: entities, Money type, interfaces, errors (no infrastructure)
-    Wallet.Infrastructure/ EF Core reads + ADO.NET money paths + migration runner
+    Wallet.Infrastructure/ ADO.NET data access (reads + money paths) + migration runner
   tests/
     Wallet.UnitTests/          xUnit, no database
     Wallet.IntegrationTests/   xUnit against SQL Server (DBngin)

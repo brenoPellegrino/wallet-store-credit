@@ -7,7 +7,7 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Infrastructure: ADO.NET connection factory today, EF Core and repositories later.
+// Infrastructure: ADO.NET connection factory today, repositories and the migration runner later.
 builder.Services.AddWalletInfrastructure(builder.Configuration);
 
 var app = builder.Build();
