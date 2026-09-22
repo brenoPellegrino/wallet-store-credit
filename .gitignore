@@ -482,3 +482,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local dev settings hold the DB password; keep them out of source control.
+src/Wallet.Api/appsettings.Development.json

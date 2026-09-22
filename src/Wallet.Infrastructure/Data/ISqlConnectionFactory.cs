@@ -8,6 +8,9 @@ namespace Wallet.Infrastructure.Data;
 /// </summary>
 public interface ISqlConnectionFactory
 {
+    /// <summary>The configured connection string. The migrator uses it to reach the server's master database.</summary>
+    string ConnectionString { get; }
+
     /// <summary>Creates a new, unopened <see cref="SqlConnection"/>.</summary>
     SqlConnection Create();
 

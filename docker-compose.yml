@@ -1,0 +1,29 @@
+# Local SQL Server for development and integration tests.
+#
+# SQL Server has no native Apple Silicon build, so on arm64 this runs the x64 image under
+# emulation (platform: linux/amd64). It is slower to pull and boot than a native image but is
+# fine for a development database. The SA password is read from .env (which is git-ignored);
+# copy .env.example to .env to set it.
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    container_name: wallet-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - wallet-mssql-data:/var/opt/mssql
+    healthcheck:
+      # The server image has bash; a TCP probe is more reliable across image versions than sqlcmd.
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/1433' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+volumes:
+  wallet-mssql-data:

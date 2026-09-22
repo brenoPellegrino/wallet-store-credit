@@ -21,6 +21,8 @@ public sealed class SqlConnectionFactory : ISqlConnectionFactory
         _connectionString = value;
     }
 
+    public string ConnectionString => _connectionString;
+
     public SqlConnection Create() => new(_connectionString);
 
     public async Task<SqlConnection> CreateOpenAsync(CancellationToken cancellationToken = default)

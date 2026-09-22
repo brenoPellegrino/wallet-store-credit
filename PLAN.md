@@ -20,7 +20,7 @@ The goal is a portfolio project that proves depth in SQL, ADO.NET and stored pro
 - **Data access**: raw ADO.NET everywhere. Every money mutation (credit, debit, transfer) runs through stored procedures called over ADO.NET. Reads (wallet lookup, balance, statement) are hand-written SQL over `SqlCommand`/`SqlDataReader`. There is no ORM. The balance read is the most interesting query in the project (an expiration-filtered per-currency aggregate that the M4 plan study profiles), so it stays hand-written and deterministic rather than ORM-generated. This keeps the project coherent around a single data-access story: SQL depth, end to end.
 - **Migrations**: a hand-rolled ADO.NET migration runner (a `__schema_versions` table plus numbered `.sql` scripts run inside a `SqlTransaction`). Tables, stored procedures and indexes are all versioned as SQL scripts.
 - **Money type**: `DECIMAL(19,4)` in the database and `decimal` in C#, never `float`.
-- **Local database**: SQL Server running in DBngin on macOS. Connection string lives in `appsettings.Development.json` (or user secrets). LocalDB is not used because it is Windows only.
+- **Local database**: SQL Server 2022 in Docker (`docker-compose.yml`). SQL Server has no native Apple Silicon build and DBngin does not offer it, so on arm64 the x64 image runs under emulation, which is fine for development. The migration runner creates the database on first run, so `docker compose up -d` then running the app or tests is enough. The SA password lives in `.env` (git-ignored) for Compose and in `appsettings.Development.json` (git-ignored) for the API; `.env.example` and `appsettings.Development.json.example` are the tracked templates. See `docs/adr/0002-sql-server-in-docker.md`.
 
 ## Way of working
 

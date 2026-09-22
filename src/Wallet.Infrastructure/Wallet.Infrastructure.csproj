@@ -4,6 +4,14 @@
     <ProjectReference Include="..\Wallet.Core\Wallet.Core.csproj" />
   </ItemGroup>
 
+  <!-- The migration scripts live in db/migrations (single source of truth, see PLAN.md) and are
+       embedded so the runner finds them regardless of the working directory. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\db\migrations\*.sql">
+      <LogicalName>Wallet.Migrations.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
