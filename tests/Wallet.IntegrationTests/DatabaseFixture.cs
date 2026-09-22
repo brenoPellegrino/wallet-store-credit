@@ -26,6 +26,10 @@ public sealed class DatabaseFixture : IAsyncLifetime
     public IServiceProvider Services =>
         _factory?.Services ?? throw new InvalidOperationException("The database is not available.");
 
+    /// <summary>An HTTP client bound to the in-memory API, for tests that exercise the HTTP pipeline.</summary>
+    public HttpClient CreateClient() =>
+        (_factory ?? throw new InvalidOperationException("The database is not available.")).CreateClient();
+
     public async Task InitializeAsync()
     {
         var connectionString = ResolveConnectionString();

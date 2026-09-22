@@ -30,6 +30,7 @@ public sealed partial class DatabaseMigrator : IDatabaseMigrator
     {
         var scripts = LoadScripts();
 
+        await WaitForServerAsync(cancellationToken);
         await EnsureDatabaseExistsAsync(cancellationToken);
 
         await using var connection = await _connectionFactory.CreateOpenAsync(cancellationToken);
@@ -56,6 +57,35 @@ public sealed partial class DatabaseMigrator : IDatabaseMigrator
         }
 
         return appliedNow;
+    }
+
+    /// <summary>
+    /// Waits for the server to accept connections before migrating. A just-started SQL Server
+    /// container (especially under emulation) reports its port open before it accepts logins, so
+    /// the API would otherwise fail its startup migration on the first boot of the stack.
+    /// </summary>
+    private async Task WaitForServerAsync(CancellationToken cancellationToken)
+    {
+        var master = new SqlConnectionStringBuilder(_connectionFactory.ConnectionString)
+        {
+            InitialCatalog = "master",
+            ConnectTimeout = 5,
+        }.ConnectionString;
+
+        const int maxAttempts = 30;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await using var connection = new SqlConnection(master);
+                await connection.OpenAsync(cancellationToken);
+                return;
+            }
+            catch (SqlException) when (attempt < maxAttempts)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            }
+        }
     }
 
     /// <summary>

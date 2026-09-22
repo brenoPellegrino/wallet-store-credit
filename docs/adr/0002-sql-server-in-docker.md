@@ -31,3 +31,20 @@ fresh container needs no manual `CREATE DATABASE`.
   not reachable, so the suite is green without a running container.
 - Alternatives if emulation ever becomes a problem: a remote or cloud SQL Server, or Azure SQL Edge
   (its ARM builds are discontinued, so it is not a reliable option today).
+
+## The whole system in Docker
+
+The API also has a Dockerfile and an `api` service in Compose, behind the `app` profile, so someone
+who hits the same "no SQL Server" wall (or who does not have the .NET SDK) can run everything with
+one command:
+
+- `docker compose up -d` starts only the database. This is the default, so the fast local loop
+  (`dotnet run` against the container) is unchanged.
+- `docker compose --profile app up --build` starts the database and the API together, reachable at
+  `http://localhost:8080/swagger`. The API image is native to the host architecture; only SQL Server
+  is emulated.
+
+The API waits for the database to accept logins (a bounded retry in the migration runner), because
+the container's TCP healthcheck goes green before SQL Server is ready for connections. The
+connection string is passed as an environment variable pointing at the `sqlserver` service; the
+password stays in `.env` and is never baked into the image.

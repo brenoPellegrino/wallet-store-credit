@@ -4,14 +4,14 @@ namespace Wallet.Api.Contracts;
 
 /// <summary>Request body for creating a wallet.</summary>
 public sealed record CreateWalletRequest(
-    [property: Required] string UserId,
+    [Required] string UserId,
     string? Metadata);
 
 /// <summary>Request body for crediting a wallet. <c>EventId</c> is the idempotency key.</summary>
 public sealed record CreditWalletRequest(
-    [property: Required] Guid EventId,
-    [property: Range(typeof(decimal), "0.0001", "999999999999999.9999")] decimal Amount,
-    [property: Required] [property: StringLength(3, MinimumLength = 3)] string Currency,
+    [Required] Guid EventId,
+    [Range(typeof(decimal), "0.0001", "999999999999999.9999", ParseLimitsInInvariantCulture = true)] decimal Amount,
+    [Required][StringLength(3, MinimumLength = 3)] string Currency,
     bool IsRefundable = false,
     DateTime? ExpirationUtc = null);
 

@@ -1,0 +1,18 @@
+# Build output and IDE noise
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+
+# VCS and local tooling
+.git/
+.gitignore
+.dockerignore
+
+# Local secrets must never enter the image (the connection string is passed as an env var)
+.env
+**/appsettings.Development.json
+
+# Docs and non-build files
+*.md
+docs/

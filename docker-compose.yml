@@ -25,5 +25,26 @@ services:
       retries: 12
       start_period: 40s
 
+  # The API itself, so someone without SQL Server or the .NET SDK can run the whole system:
+  #   docker compose --profile app up --build   ->   http://localhost:8080/swagger
+  # It is behind the "app" profile so a plain `docker compose up` still starts only the database,
+  # which keeps the fast local loop (dotnet run against the container) unchanged.
+  api:
+    build:
+      context: .
+      dockerfile: src/Wallet.Api/Dockerfile
+    container_name: wallet-api
+    profiles: ["app"]
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # Reaches SQL Server by service name on the compose network; password comes from .env.
+      WalletDatabase__ConnectionString: "Server=sqlserver,1433;Database=WalletDb;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True;Encrypt=False"
+    ports:
+      - "8080:8080"
+    restart: on-failure
+
 volumes:
   wallet-mssql-data:
