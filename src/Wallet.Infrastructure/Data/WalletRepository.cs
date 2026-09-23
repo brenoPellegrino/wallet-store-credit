@@ -14,8 +14,9 @@ namespace Wallet.Infrastructure.Data;
 /// </summary>
 public sealed class WalletRepository : IWalletRepository
 {
-    // Thrown by usp_CreditWallet when the wallet is missing or deleted (THROW 50001).
+    // Custom error numbers the procedures THROW.
     private const int WalletNotFoundError = 50001;
+    private const int InsufficientFundsError = 50002;
 
     private readonly ISqlConnectionFactory _connectionFactory;
 
@@ -128,6 +129,87 @@ public sealed class WalletRepository : IWalletRepository
         }
 
         return balances;
+    }
+
+    public async Task<DebitReceipt> DebitAsync(
+        Guid walletPublicId,
+        DebitRequest request,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateOpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandType = CommandType.StoredProcedure;
+        command.CommandText = "dbo.usp_DebitWallet";
+        command.Parameters.Add("@wallet_public_id", SqlDbType.UniqueIdentifier).Value = walletPublicId;
+        command.Parameters.Add("@event_id", SqlDbType.UniqueIdentifier).Value = request.EventId;
+        command.Parameters.Add("@amount", SqlDbType.Decimal).Value = request.Amount.Amount;
+        command.Parameters.Add("@currency", SqlDbType.Char, 3).Value = request.Amount.Currency;
+        command.Parameters.Add("@kind", SqlDbType.TinyInt).Value = (byte)request.Kind;
+        command.Parameters.Add("@now_utc", SqlDbType.DateTime2).Value = asOfUtc;
+
+        try
+        {
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+            // First result set: the debit row.
+            await reader.ReadAsync(cancellationToken);
+            var debitId = reader.GetInt64(0);
+            var eventId = reader.GetGuid(1);
+            var amount = Money.Create(reader.GetDecimal(2), reader.GetString(3).TrimEnd());
+            var kind = (DebitKind)reader.GetByte(4);
+            var createdAt = reader.GetDateTime(5);
+            var replayed = reader.GetBoolean(6);
+
+            // Second result set: how the debit drew from each bag.
+            var allocations = new List<DebitAllocation>();
+            await reader.NextResultAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                allocations.Add(new DebitAllocation(reader.GetInt64(0), reader.GetDecimal(1)));
+            }
+
+            return new DebitReceipt(debitId, eventId, amount, kind, createdAt, replayed, allocations);
+        }
+        catch (SqlException ex) when (ex.Number == WalletNotFoundError)
+        {
+            throw new WalletNotFoundException(walletPublicId);
+        }
+        catch (SqlException ex) when (ex.Number == InsufficientFundsError)
+        {
+            throw new InsufficientFundsException(walletPublicId, request.Amount);
+        }
+    }
+
+    public async Task<IReadOnlyList<StatementEntry>> GetStatementAsync(
+        Guid walletPublicId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateOpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandType = CommandType.StoredProcedure;
+        command.CommandText = "dbo.usp_GetWalletStatement";
+        command.Parameters.Add("@wallet_public_id", SqlDbType.UniqueIdentifier).Value = walletPublicId;
+
+        try
+        {
+            var entries = new List<StatementEntry>();
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                // Columns: entry_type, entry_id, event_id, amount, currency, kind, created_at_utc
+                var type = reader.GetString(0) == "credit" ? MovementType.Credit : MovementType.Debit;
+                var amount = Money.Create(reader.GetDecimal(3), reader.GetString(4).TrimEnd());
+                DebitKind? kind = reader.IsDBNull(5) ? null : (DebitKind)reader.GetByte(5);
+                entries.Add(new StatementEntry(type, reader.GetInt64(1), reader.GetGuid(2), amount, kind, reader.GetDateTime(6)));
+            }
+
+            return entries;
+        }
+        catch (SqlException ex) when (ex.Number == WalletNotFoundError)
+        {
+            throw new WalletNotFoundException(walletPublicId);
+        }
     }
 
     private static WalletAccount ReadWallet(SqlDataReader reader) => new(

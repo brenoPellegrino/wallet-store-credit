@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Wallet.Core;
 
 namespace Wallet.Api.Contracts;
 
@@ -36,3 +37,34 @@ public sealed record CreditResponse(
 
 /// <summary>One currency's available balance.</summary>
 public sealed record BalanceResponse(string Currency, decimal Available);
+
+/// <summary>Request body for debiting a wallet. <c>EventId</c> is the idempotency key.</summary>
+public sealed record DebitWalletRequest(
+    [Required] Guid EventId,
+    [Range(typeof(decimal), "0.0001", "999999999999999.9999", ParseLimitsInInvariantCulture = true)] decimal Amount,
+    [Required][StringLength(3, MinimumLength = 3)] string Currency,
+    DebitKind Kind = DebitKind.Spend);
+
+/// <summary>How a debit drew from one credit bag.</summary>
+public sealed record DebitAllocationResponse(long CreditId, decimal Amount);
+
+/// <summary>The result of a debit, including whether it was an idempotent replay.</summary>
+public sealed record DebitResponse(
+    long DebitId,
+    Guid EventId,
+    decimal Amount,
+    string Currency,
+    DebitKind Kind,
+    DateTime CreatedAtUtc,
+    bool Replayed,
+    IReadOnlyList<DebitAllocationResponse> Allocations);
+
+/// <summary>One movement on a wallet statement. <c>Amount</c> is positive; the sign is in <c>Type</c>.</summary>
+public sealed record StatementEntryResponse(
+    string Type,
+    long EntryId,
+    Guid EventId,
+    decimal Amount,
+    string Currency,
+    DebitKind? Kind,
+    DateTime CreatedAtUtc);
