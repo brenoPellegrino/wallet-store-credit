@@ -39,4 +39,23 @@ public interface IWalletRepository
         Guid walletPublicId,
         DateTime asOfUtc,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Spends from a wallet through <c>usp_DebitWallet</c>, drawing from bags oldest-expiring first.
+    /// Replaying an <see cref="DebitRequest.EventId"/> that was already applied returns the existing
+    /// debit with <see cref="DebitReceipt.Replayed"/> set, and spends nothing.
+    /// </summary>
+    /// <exception cref="Errors.WalletNotFoundException">The wallet does not exist or is deleted.</exception>
+    /// <exception cref="Errors.InsufficientFundsException">The wallet cannot cover the amount.</exception>
+    Task<DebitReceipt> DebitAsync(
+        Guid walletPublicId,
+        DebitRequest request,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Returns the wallet's movements (credits and debits) in time order.</summary>
+    /// <exception cref="Errors.WalletNotFoundException">The wallet does not exist or is deleted.</exception>
+    Task<IReadOnlyList<StatementEntry>> GetStatementAsync(
+        Guid walletPublicId,
+        CancellationToken cancellationToken = default);
 }

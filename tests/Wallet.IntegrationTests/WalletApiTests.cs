@@ -68,9 +68,54 @@ public sealed class WalletApiTests
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    [SkippableFact]
+    public async Task Debit_over_http_spends_then_overdraft_returns_409()
+    {
+        Skip.IfNot(_fixture.Available, _fixture.SkipReason);
+        var client = _fixture.CreateClient();
+
+        var create = await client.PostAsJsonAsync("/wallets", new { userId = "http-debit" });
+        var wallet = await create.Content.ReadFromJsonAsync<WalletDto>();
+        await client.PostAsJsonAsync($"/wallets/{wallet!.PublicId}/credits",
+            new { eventId = Guid.NewGuid(), amount = 50m, currency = "USD" });
+
+        var debit = await client.PostAsJsonAsync($"/wallets/{wallet.PublicId}/debits",
+            new { eventId = Guid.NewGuid(), amount = 30m, currency = "USD" });
+        debit.EnsureSuccessStatusCode();
+
+        var balances = await client.GetFromJsonAsync<List<BalanceDto>>($"/wallets/{wallet.PublicId}/balances");
+        Assert.Equal(20m, Assert.Single(balances!).Available);
+
+        var overdraft = await client.PostAsJsonAsync($"/wallets/{wallet.PublicId}/debits",
+            new { eventId = Guid.NewGuid(), amount = 100m, currency = "USD" });
+        Assert.Equal(HttpStatusCode.Conflict, overdraft.StatusCode);
+    }
+
+    [SkippableFact]
+    public async Task Statement_over_http_lists_movements()
+    {
+        Skip.IfNot(_fixture.Available, _fixture.SkipReason);
+        var client = _fixture.CreateClient();
+
+        var create = await client.PostAsJsonAsync("/wallets", new { userId = "http-statement" });
+        var wallet = await create.Content.ReadFromJsonAsync<WalletDto>();
+        await client.PostAsJsonAsync($"/wallets/{wallet!.PublicId}/credits",
+            new { eventId = Guid.NewGuid(), amount = 40m, currency = "USD" });
+        await client.PostAsJsonAsync($"/wallets/{wallet.PublicId}/debits",
+            new { eventId = Guid.NewGuid(), amount = 15m, currency = "USD" });
+
+        var statement = await client.GetFromJsonAsync<List<StatementDto>>($"/wallets/{wallet.PublicId}/statement");
+
+        Assert.Equal(2, statement!.Count);
+        Assert.Equal("Credit", statement[0].Type);
+        Assert.Equal("Debit", statement[1].Type);
+    }
+
     private sealed record WalletDto(Guid PublicId, string UserId);
 
     private sealed record CreditDto(long CreditId, bool Replayed);
 
     private sealed record BalanceDto(string Currency, decimal Available);
+
+    private sealed record StatementDto(string Type, decimal Amount);
 }
