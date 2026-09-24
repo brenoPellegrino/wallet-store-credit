@@ -176,7 +176,7 @@ public sealed class WalletRepository : IWalletRepository
         command.CommandText = "dbo.usp_CreditWallet";
         command.Parameters.Add("@wallet_public_id", SqlDbType.UniqueIdentifier).Value = walletPublicId;
         command.Parameters.Add("@event_id", SqlDbType.UniqueIdentifier).Value = request.EventId;
-        command.Parameters.Add("@amount", SqlDbType.Decimal).Value = request.Amount.Amount;
+        AddMoneyParameter(command, "@amount", request.Amount.Amount);
         command.Parameters.Add("@currency", SqlDbType.Char, 3).Value = request.Amount.Currency;
         command.Parameters.Add("@is_refundable", SqlDbType.Bit).Value = request.IsRefundable;
         command.Parameters.Add("@expiration_date", SqlDbType.DateTime2).Value =
@@ -208,7 +208,7 @@ public sealed class WalletRepository : IWalletRepository
         command.CommandText = "dbo.usp_DebitWallet";
         command.Parameters.Add("@wallet_public_id", SqlDbType.UniqueIdentifier).Value = walletPublicId;
         command.Parameters.Add("@event_id", SqlDbType.UniqueIdentifier).Value = request.EventId;
-        command.Parameters.Add("@amount", SqlDbType.Decimal).Value = request.Amount.Amount;
+        AddMoneyParameter(command, "@amount", request.Amount.Amount);
         command.Parameters.Add("@currency", SqlDbType.Char, 3).Value = request.Amount.Currency;
         command.Parameters.Add("@kind", SqlDbType.TinyInt).Value = (byte)request.Kind;
         command.Parameters.Add("@now_utc", SqlDbType.DateTime2).Value = asOfUtc;
@@ -270,6 +270,19 @@ public sealed class WalletRepository : IWalletRepository
         command.Parameters.Add("@first", SqlDbType.UniqueIdentifier).Value = first;
         command.Parameters.Add("@second", SqlDbType.UniqueIdentifier).Value = second;
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Adds a money parameter with explicit precision and scale matching <c>DECIMAL(19,4)</c>. Without
+    /// this, ADO.NET infers precision and scale from the value, which can silently truncate on a money
+    /// path. Every <c>@amount</c> goes through here so all agree with the database type.
+    /// </summary>
+    private static void AddMoneyParameter(SqlCommand command, string name, decimal amount)
+    {
+        var parameter = command.Parameters.Add(name, SqlDbType.Decimal);
+        parameter.Precision = 19;
+        parameter.Scale = 4;
+        parameter.Value = amount;
     }
 
     private static async Task TryRollbackAsync(SqlTransaction transaction, CancellationToken cancellationToken)
