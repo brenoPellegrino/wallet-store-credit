@@ -138,6 +138,8 @@ SELECT 1 FROM wallets WITH (UPDLOCK, HOLDLOCK) WHERE wallet_id = @wallet_id;
 
 The wallet row is only a gate here, it is not updated. Two debits on the same wallet queue, so the availability math is stable inside the transaction. Debits on different wallets still run in parallel. An alternative is `sp_getapplock` keyed on the wallet id. The unique index on `event_id` is the final backstop against duplicate application.
 
+**Transfers and deadlock avoidance.** A transfer locks two wallet rows (source and destination). Two opposing transfers running at once, `A -> B` and `B -> A`, would otherwise each hold one row and wait for the other, a classic deadlock. This was confirmed with a stress test: SQL Server reported deadlock victims (error 1205). The fix is **ordered locking**: a transfer always locks the two wallets in a fixed global order (by `public_id`, lower first) before doing the debit and credit. Because every transfer acquires the lower id first, no two transfers can hold each other's row, so the cycle cannot form. This is done client-side in `WalletRepository.TransferAsync` before the money operations run.
+
 ## Idempotency
 
 `event_id` is a client-supplied `UNIQUEIDENTIFIER`, unique on both `wallet_credits` and `wallet_debits`. A repeated request with the same `event_id` is detected and the original result is returned. A racing duplicate that slips past the check hits the unique index and is treated as a replay.

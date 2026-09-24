@@ -132,6 +132,12 @@ public sealed class WalletRepository : IWalletRepository
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         try
         {
+            // Lock both wallets up front, in a fixed global order, so two opposing transfers
+            // (A -> B and B -> A) can never each hold one row and wait for the other. Without this,
+            // the debit's lock on the source and the other transfer's access to it form a deadlock
+            // cycle. Ordered locking is the standard defense.
+            await LockWalletsInOrderAsync(connection, transaction, sourcePublicId, destinationPublicId, cancellationToken);
+
             // Both operations share one transaction: the debit from the source and the credit to the
             // destination either commit together or not at all. The same event_id makes the whole
             // transfer idempotent (a replay finds both rows already present and adds nothing).
@@ -238,6 +244,32 @@ public sealed class WalletRepository : IWalletRepository
         {
             throw new InsufficientFundsException(walletPublicId, request.Amount);
         }
+    }
+
+    /// <summary>
+    /// Takes an update lock on both wallet rows in a deterministic order (by public id). Because every
+    /// transfer acquires the lower id first, no two transfers can hold each other's row, so a
+    /// transfer-vs-transfer deadlock cannot form.
+    /// </summary>
+    private static async Task LockWalletsInOrderAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        Guid a,
+        Guid b,
+        CancellationToken cancellationToken)
+    {
+        var (first, second) = Comparer<Guid>.Default.Compare(a, b) <= 0 ? (a, b) : (b, a);
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            """
+            SELECT 1 FROM dbo.wallets WITH (UPDLOCK, HOLDLOCK) WHERE public_id = @first;
+            SELECT 1 FROM dbo.wallets WITH (UPDLOCK, HOLDLOCK) WHERE public_id = @second;
+            """;
+        command.Parameters.Add("@first", SqlDbType.UniqueIdentifier).Value = first;
+        command.Parameters.Add("@second", SqlDbType.UniqueIdentifier).Value = second;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task TryRollbackAsync(SqlTransaction transaction, CancellationToken cancellationToken)

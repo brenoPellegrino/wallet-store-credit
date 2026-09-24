@@ -98,7 +98,10 @@ the instant it expires, with no job and no write.
 - **Concurrency safety.** Two debits on the same wallet must not both read the same available balance
   and overspend a bag. Each debit first takes an update lock (`UPDLOCK, HOLDLOCK`) on the wallet row,
   so debits on one wallet serialize while debits on different wallets still run in parallel. This is
-  proven by a test that fires many debits at the same instant and asserts the money adds up.
+  proven by a test that fires many debits at the same instant and asserts the money adds up. Transfers
+  lock two wallets, so they use **ordered locking** (always the lower `public_id` first) to avoid the
+  classic `A -> B` / `B -> A` deadlock. A stress test exposed real deadlocks (error 1205) before this
+  fix, and confirms none after.
 - **ACID transactions.** Each single money operation runs in one transaction that commits fully or
   rolls back. A **transfer** goes further: it opens a client-side `SqlTransaction` in C# and runs the
   source debit and the destination credit inside it, so they commit together or not at all. If the
