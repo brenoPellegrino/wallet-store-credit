@@ -46,12 +46,12 @@ wallet/
   Wallet.sln
   PLAN.md
   docs/            schema.md, execution-plans/, adr/
-  db/              migrations/, procedures/, perf/
+  db/              migrations/ (tables, procedures and indexes, applied in order), perf/
   src/
     Wallet.Api/            ASP.NET Core Web API
     Wallet.Core/           domain: entities, Money type, interfaces, errors (no infrastructure)
     Wallet.Infrastructure/ ADO.NET data access (reads + money paths) + migration runner
   tests/
     Wallet.UnitTests/          xUnit, no database
-    Wallet.IntegrationTests/   xUnit against SQL Server (DBngin)
+    Wallet.IntegrationTests/   xUnit against SQL Server (Docker)
 ```
