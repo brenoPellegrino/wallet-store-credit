@@ -160,10 +160,18 @@ The README will show the balance query plan before and after `IX_wallet_credits_
 - Keys: `BIGINT IDENTITY` internal keys, `UNIQUEIDENTIFIER` public id. Small clustered keys keep the nonclustered indexes small.
 - Enumerations: `BIT` for `is_refundable`, `TINYINT` with a CHECK for `kind`. Simple and cheap. A lookup table can replace them later if the set of values grows.
 
+## Built after the MVP
+
+- **Transfers between wallets (M5).** A transfer is one debit from the source and one credit to the
+  destination, both carrying the same `event_id`, run inside a single client-side `SqlTransaction`
+  so they commit or roll back together. The shared `event_id` is the correlation between the two
+  rows and makes the whole transfer idempotent. See `usp_DebitWallet`, `usp_CreditWallet` and
+  `WalletRepository.TransferAsync`.
+- **The statement reading index `(wallet_id, created_at_utc)` (M3),** on both `wallet_credits` and
+  `wallet_debits`, for the history endpoint.
+
 ## Deferred (not in the MVP)
 
-- Transfers between wallets (planned for M5, likely two debits and a credit linked by a correlation id).
-- A statement/report reading index on `(wallet_id, created_at_utc)` for the history endpoint (M3).
 - A balance snapshot/checkpoint table if the derived reads ever need to be faster. It would also be append-only.
 - A richer wallet status beyond soft delete.
 - **Materialized expiration events, so expirations appear on the statement and in the audit trail.** A scheduled job (a .NET `IHostedService` or a cron-triggered endpoint, not a trigger and not necessarily SQL Server Agent) runs on an interval, finds expired bags that still have a remaining amount, and inserts an expiration event modeled as a special debit (`kind = 3`) plus one allocation that consumes the bag's remaining amount. This stays append-only and flows through the same statement machinery as a normal debit. It does not double-count with the read-time filter: an expired bag contributes zero either way, and the filter covers the lag until the job runs, so the balance is never wrong in the meantime. When this is added, the `kind` CHECK expands to include 3.

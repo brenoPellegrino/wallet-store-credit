@@ -58,7 +58,7 @@ public sealed class WalletsController : ControllerBase
         try
         {
             var receipt = await _wallets.CreditAsync(publicId, creditRequest, cancellationToken);
-            return Ok(ToResponse(receipt));
+            return Ok(receipt.ToResponse());
         }
         catch (WalletNotFoundException)
         {
@@ -104,7 +104,7 @@ public sealed class WalletsController : ControllerBase
         try
         {
             var receipt = await _wallets.DebitAsync(publicId, debitRequest, DateTime.UtcNow, cancellationToken);
-            return Ok(ToResponse(receipt));
+            return Ok(receipt.ToResponse());
         }
         catch (WalletNotFoundException)
         {
@@ -136,24 +136,4 @@ public sealed class WalletsController : ControllerBase
 
     private static WalletResponse ToResponse(WalletAccount wallet) => new(
         wallet.PublicId, wallet.UserId, wallet.Metadata, wallet.CreatedAtUtc, wallet.DeletedAtUtc);
-
-    private static CreditResponse ToResponse(CreditReceipt receipt) => new(
-        receipt.CreditId,
-        receipt.EventId,
-        receipt.Amount.Amount,
-        receipt.Amount.Currency,
-        receipt.IsRefundable,
-        receipt.ExpirationUtc,
-        receipt.CreatedAtUtc,
-        receipt.Replayed);
-
-    private static DebitResponse ToResponse(DebitReceipt receipt) => new(
-        receipt.DebitId,
-        receipt.EventId,
-        receipt.Amount.Amount,
-        receipt.Amount.Currency,
-        receipt.Kind,
-        receipt.CreatedAtUtc,
-        receipt.Replayed,
-        receipt.Allocations.Select(a => new DebitAllocationResponse(a.CreditId, a.Amount)).ToList());
 }

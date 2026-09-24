@@ -111,6 +111,81 @@ public sealed class WalletApiTests
         Assert.Equal("Debit", statement[1].Type);
     }
 
+    [SkippableFact]
+    public async Task Transfer_over_http_moves_money_between_wallets()
+    {
+        Skip.IfNot(_fixture.Available, _fixture.SkipReason);
+        var client = _fixture.CreateClient();
+
+        var source = (await (await client.PostAsJsonAsync("/wallets", new { userId = "http-xfer-src" }))
+            .Content.ReadFromJsonAsync<WalletDto>())!;
+        var destination = (await (await client.PostAsJsonAsync("/wallets", new { userId = "http-xfer-dst" }))
+            .Content.ReadFromJsonAsync<WalletDto>())!;
+        await client.PostAsJsonAsync($"/wallets/{source.PublicId}/credits",
+            new { eventId = Guid.NewGuid(), amount = 70m, currency = "USD" });
+
+        var transfer = await client.PostAsJsonAsync("/transfers", new
+        {
+            eventId = Guid.NewGuid(),
+            sourceWalletId = source.PublicId,
+            destinationWalletId = destination.PublicId,
+            amount = 30m,
+            currency = "USD",
+        });
+        transfer.EnsureSuccessStatusCode();
+
+        var sourceBalance = await client.GetFromJsonAsync<List<BalanceDto>>($"/wallets/{source.PublicId}/balances");
+        var destBalance = await client.GetFromJsonAsync<List<BalanceDto>>($"/wallets/{destination.PublicId}/balances");
+        Assert.Equal(40m, Assert.Single(sourceBalance!).Available);
+        Assert.Equal(30m, Assert.Single(destBalance!).Available);
+    }
+
+    [SkippableFact]
+    public async Task Transfer_to_self_returns_400()
+    {
+        Skip.IfNot(_fixture.Available, _fixture.SkipReason);
+        var client = _fixture.CreateClient();
+
+        var wallet = (await (await client.PostAsJsonAsync("/wallets", new { userId = "http-xfer-self" }))
+            .Content.ReadFromJsonAsync<WalletDto>())!;
+
+        var response = await client.PostAsJsonAsync("/transfers", new
+        {
+            eventId = Guid.NewGuid(),
+            sourceWalletId = wallet.PublicId,
+            destinationWalletId = wallet.PublicId,
+            amount = 10m,
+            currency = "USD",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [SkippableFact]
+    public async Task Transfer_over_balance_returns_409()
+    {
+        Skip.IfNot(_fixture.Available, _fixture.SkipReason);
+        var client = _fixture.CreateClient();
+
+        var source = (await (await client.PostAsJsonAsync("/wallets", new { userId = "http-xfer-poor" }))
+            .Content.ReadFromJsonAsync<WalletDto>())!;
+        var destination = (await (await client.PostAsJsonAsync("/wallets", new { userId = "http-xfer-rich" }))
+            .Content.ReadFromJsonAsync<WalletDto>())!;
+        await client.PostAsJsonAsync($"/wallets/{source.PublicId}/credits",
+            new { eventId = Guid.NewGuid(), amount = 10m, currency = "USD" });
+
+        var response = await client.PostAsJsonAsync("/transfers", new
+        {
+            eventId = Guid.NewGuid(),
+            sourceWalletId = source.PublicId,
+            destinationWalletId = destination.PublicId,
+            amount = 50m,
+            currency = "USD",
+        });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
     private sealed record WalletDto(Guid PublicId, string UserId);
 
     private sealed record CreditDto(long CreditId, bool Replayed);
