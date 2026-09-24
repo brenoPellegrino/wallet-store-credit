@@ -33,7 +33,12 @@ public sealed class WalletsController : ControllerBase
     public async Task<ActionResult<WalletResponse>> Get(Guid publicId, CancellationToken cancellationToken)
     {
         var wallet = await _wallets.GetWalletAsync(publicId, cancellationToken);
-        return wallet is null || !wallet.IsActive ? NotFound() : Ok(ToResponse(wallet));
+        if (wallet is null || !wallet.IsActive)
+        {
+            return Problem(statusCode: StatusCodes.Status404NotFound, title: "Wallet not found");
+        }
+
+        return Ok(ToResponse(wallet));
     }
 
     /// <summary>Credits a wallet. Replaying the same <c>EventId</c> returns the original credit.</summary>
@@ -62,7 +67,7 @@ public sealed class WalletsController : ControllerBase
         }
         catch (WalletNotFoundException)
         {
-            return NotFound();
+            return Problem(statusCode: StatusCodes.Status404NotFound, title: "Wallet not found");
         }
     }
 
@@ -75,7 +80,7 @@ public sealed class WalletsController : ControllerBase
         var wallet = await _wallets.GetWalletAsync(publicId, cancellationToken);
         if (wallet is null || !wallet.IsActive)
         {
-            return NotFound();
+            return Problem(statusCode: StatusCodes.Status404NotFound, title: "Wallet not found");
         }
 
         var balances = await _wallets.GetBalancesAsync(publicId, DateTime.UtcNow, cancellationToken);
@@ -108,7 +113,7 @@ public sealed class WalletsController : ControllerBase
         }
         catch (WalletNotFoundException)
         {
-            return NotFound();
+            return Problem(statusCode: StatusCodes.Status404NotFound, title: "Wallet not found");
         }
         catch (InsufficientFundsException ex)
         {
@@ -130,7 +135,7 @@ public sealed class WalletsController : ControllerBase
         }
         catch (WalletNotFoundException)
         {
-            return NotFound();
+            return Problem(statusCode: StatusCodes.Status404NotFound, title: "Wallet not found");
         }
     }
 
