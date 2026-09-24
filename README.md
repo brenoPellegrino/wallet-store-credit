@@ -1,5 +1,10 @@
 # Wallet / Store-Credit System
 
+[![CI](https://github.com/brenoPellegrino/wallet-store-credit/actions/workflows/ci.yml/badge.svg)](https://github.com/brenoPellegrino/wallet-store-credit/actions/workflows/ci.yml)
+![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)
+![SQL Server 2022](https://img.shields.io/badge/SQL%20Server-2022-CC2927?logo=microsoftsqlserver&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 A standalone wallet and store-credit service. It is a C# / .NET 8 Web API backed by SQL Server,
 written to show depth in **SQL, raw ADO.NET and stored procedures** on the paths that move money.
 
@@ -22,6 +27,7 @@ transaction for transfers and a covering index whose value is measured, not assu
 - [Key decisions](#key-decisions)
 - [Running locally](#running-locally)
 - [Repository layout](#repository-layout)
+- [License](#license)
 
 ## What it does
 
@@ -69,10 +75,47 @@ deterministic for the performance study (see [ADR 0001](docs/adr/0001-no-orm-raw
 Four tables, all append-only except for a soft-delete flag on `wallets`. The full design and the
 reasoning behind every column, key and constraint is in [`docs/schema.md`](docs/schema.md).
 
-```
-wallets ─┬─< wallet_credits ─────< wallet_debit_allocations >───── wallet_debits >─┬─ wallets
-         │        (bags)                 (how a debit drew                (spends)  │
-         └──────────────────────────── from each bag) ───────────────────────────┘
+```mermaid
+erDiagram
+    wallets ||--o{ wallet_credits : "holds"
+    wallets ||--o{ wallet_debits : "spends"
+    wallet_debits ||--o{ wallet_debit_allocations : "drawn by"
+    wallet_credits ||--o{ wallet_debit_allocations : "drawn from"
+
+    wallets {
+        bigint wallet_id PK
+        uniqueidentifier public_id UK "id exposed in the API"
+        nvarchar user_id
+        nvarchar metadata "nullable"
+        datetime2 created_at_utc
+        datetime2 deleted_at_utc "nullable, soft delete"
+    }
+    wallet_credits {
+        bigint credit_id PK
+        bigint wallet_id FK
+        uniqueidentifier event_id UK "idempotency key"
+        decimal amount "DECIMAL(19,4), CHECK > 0"
+        char currency "CHAR(3)"
+        bit is_refundable
+        datetime2 expiration_date "nullable"
+        datetime2 created_at_utc
+    }
+    wallet_debits {
+        bigint debit_id PK
+        bigint wallet_id FK
+        uniqueidentifier event_id UK "idempotency key"
+        decimal amount "DECIMAL(19,4), CHECK > 0"
+        char currency "CHAR(3)"
+        tinyint kind "1 = spend, 2 = withdrawal"
+        datetime2 created_at_utc
+    }
+    wallet_debit_allocations {
+        bigint allocation_id PK
+        bigint debit_id FK "one debit"
+        bigint credit_id FK "one credit"
+        decimal amount "DECIMAL(19,4), CHECK > 0"
+        datetime2 created_at_utc
+    }
 ```
 
 - **`wallets`** is the aggregate root and the row locked to serialize debits.
@@ -98,7 +141,9 @@ the instant it expires, with no job and no write.
 - **Concurrency safety.** Two debits on the same wallet must not both read the same available balance
   and overspend a bag. Each debit first takes an update lock (`UPDLOCK, HOLDLOCK`) on the wallet row,
   so debits on one wallet serialize while debits on different wallets still run in parallel. This is
-  proven by a test that fires many debits at the same instant and asserts the money adds up. Transfers
+  proven by [`WalletConcurrencyTests`](tests/Wallet.IntegrationTests/WalletConcurrencyTests.cs)
+  (`Concurrent_full_balance_debits_let_exactly_one_win` and `Concurrent_partial_debits_never_overspend`),
+  which fire many debits at the same instant and assert the money adds up. Transfers
   lock two wallets, so they use **ordered locking** (always the lower `public_id` first) to avoid the
   classic `A -> B` / `B -> A` deadlock. A stress test exposed real deadlocks (error 1205) before this
   fix, and confirms none after.
@@ -229,3 +274,7 @@ wallet/
     Wallet.UnitTests/         xUnit, no database
     Wallet.IntegrationTests/  xUnit against SQL Server (Docker)
 ```
+
+## License
+
+Released under the [MIT License](LICENSE).
