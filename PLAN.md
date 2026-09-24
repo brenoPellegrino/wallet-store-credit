@@ -32,12 +32,12 @@ The goal is a portfolio project that proves depth in SQL, ADO.NET and stored pro
 ## Milestones
 
 - **M0 Scaffold (done)**: solution and projects, ADO.NET connection factory, health endpoints, configuration, this plan.
-- **M1 Schema design (design only, no code)**: agree tables, keys, columns, data types, constraints and indexes. Document the reasoning in `docs/schema.md`. Reviewed and approved before any implementation.
-- **M2 MVP implementation**: the ADO.NET migration runner, the tables from M1, `usp_CreditWallet`, create and get wallet via ADO.NET, credit via the proc and debit via ADO.NET, `EventId` idempotency, first xUnit tests (Money type plus an idempotent-replay integration test).
-- **M3 Debit proc and statement**: `usp_DebitWallet` with insufficient-funds handling, `usp_GetWalletStatement`, the covering index, tests for overdraft and idempotent debit.
-- **M4 Concurrency and performance**: a parallel double-spend test, then the execution-plan study (before and after the covering index) captured in `docs/execution-plans/`.
-- **M5 Transfer**: a client-side `SqlTransaction` across two wallets, with commit and rollback tests.
-- **M6 README and polish**: the centerpiece README, ADRs, input validation and error handling, final review.
+- **M1 Schema design (done)**: agree tables, keys, columns, data types, constraints and indexes. Documented in `docs/schema.md`.
+- **M2 MVP implementation (done)**: the ADO.NET migration runner, the tables from M1, `usp_CreditWallet`, create and get wallet via ADO.NET, credit via the proc, `EventId` idempotency, first xUnit tests (Money type plus an idempotent-replay integration test). Debit moved to M3 so its allocation algorithm is written once, as a proc.
+- **M3 Debit proc and statement (done)**: `usp_DebitWallet` with insufficient-funds handling, `usp_GetWalletStatement`, the covering index, tests for overdraft and idempotent debit.
+- **M4 Concurrency and performance (done)**: a parallel double-spend test, then the execution-plan study (before and after the covering index) captured in `docs/execution-plans/`.
+- **M5 Transfer (done)**: a client-side `SqlTransaction` across two wallets, with commit and rollback tests.
+- **M6 README and polish (done)**: the centerpiece README, ADRs, ProblemDetails error handling, final review.
 
 ## Repository layout
 

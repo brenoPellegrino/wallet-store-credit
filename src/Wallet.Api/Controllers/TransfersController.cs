@@ -63,7 +63,7 @@ public sealed class TransfersController : ControllerBase
         }
         catch (WalletNotFoundException)
         {
-            return NotFound();
+            return Problem(statusCode: StatusCodes.Status404NotFound, title: "Source or destination wallet not found");
         }
         catch (InsufficientFundsException ex)
         {

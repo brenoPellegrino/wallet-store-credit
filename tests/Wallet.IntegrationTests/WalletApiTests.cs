@@ -66,6 +66,8 @@ public sealed class WalletApiTests
         var response = await client.GetAsync($"/wallets/{Guid.NewGuid()}");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        // Errors come back as ProblemDetails.
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
     }
 
     [SkippableFact]
