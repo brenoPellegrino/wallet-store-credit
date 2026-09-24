@@ -8,6 +8,9 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Return errors as RFC 7807 ProblemDetails (validation failures, and unhandled errors in production).
+builder.Services.AddProblemDetails();
+
 // Infrastructure: ADO.NET connection factory, migration runner and the wallet repository.
 builder.Services.AddWalletInfrastructure(builder.Configuration);
 
@@ -29,6 +32,11 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+}
+else
+{
+    // In production, turn unhandled exceptions into a ProblemDetails response instead of leaking details.
+    app.UseExceptionHandler();
 }
 
 app.UseHttpsRedirection();
