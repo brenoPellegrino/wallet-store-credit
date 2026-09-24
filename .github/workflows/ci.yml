@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    # The integration tests need SQL Server. GitHub's runners are x64, so the image runs natively
+    # here (no emulation). The password is a throwaway for this ephemeral container, not a secret.
+    env:
+      MSSQL_SA_PASSWORD: "Ci!Wallet2026"
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Ci!Wallet2026"
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      # The test fixture reads MSSQL_SA_PASSWORD, waits for SQL Server to accept logins, creates
+      # WalletDb_Test and runs the migrations, so no extra database setup step is needed here.
+      - name: Test
+        run: dotnet test --no-build -c Release --verbosity normal
