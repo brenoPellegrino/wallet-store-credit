@@ -68,3 +68,22 @@ public sealed record StatementEntryResponse(
     string Currency,
     DebitKind? Kind,
     DateTime CreatedAtUtc);
+
+/// <summary>Request body for a transfer. <c>EventId</c> is the idempotency key for the whole move.</summary>
+public sealed record TransferWalletRequest(
+    [Required] Guid EventId,
+    [Required] Guid SourceWalletId,
+    [Required] Guid DestinationWalletId,
+    [Range(typeof(decimal), "0.0001", "999999999999999.9999", ParseLimitsInInvariantCulture = true)] decimal Amount,
+    [Required][StringLength(3, MinimumLength = 3)] string Currency);
+
+/// <summary>The result of a transfer: the source debit and destination credit that committed together.</summary>
+public sealed record TransferResponse(
+    Guid EventId,
+    Guid SourceWalletId,
+    Guid DestinationWalletId,
+    decimal Amount,
+    string Currency,
+    bool Replayed,
+    DebitResponse Debit,
+    CreditResponse Credit);

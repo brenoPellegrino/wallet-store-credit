@@ -58,4 +58,18 @@ public interface IWalletRepository
     Task<IReadOnlyList<StatementEntry>> GetStatementAsync(
         Guid walletPublicId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Moves money from one wallet to another in a single transaction: a debit from the source and a
+    /// credit to the destination either both commit or both roll back. Idempotent on
+    /// <see cref="TransferRequest.EventId"/>.
+    /// </summary>
+    /// <exception cref="Errors.WalletNotFoundException">The source or destination does not exist or is deleted.</exception>
+    /// <exception cref="Errors.InsufficientFundsException">The source cannot cover the amount.</exception>
+    Task<TransferReceipt> TransferAsync(
+        Guid sourcePublicId,
+        Guid destinationPublicId,
+        TransferRequest request,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken = default);
 }
