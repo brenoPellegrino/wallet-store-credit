@@ -71,27 +71,7 @@ public sealed class WalletRepository : IWalletRepository
         CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.CreateOpenAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandType = CommandType.StoredProcedure;
-        command.CommandText = "dbo.usp_CreditWallet";
-        command.Parameters.Add("@wallet_public_id", SqlDbType.UniqueIdentifier).Value = walletPublicId;
-        command.Parameters.Add("@event_id", SqlDbType.UniqueIdentifier).Value = request.EventId;
-        command.Parameters.Add("@amount", SqlDbType.Decimal).Value = request.Amount.Amount;
-        command.Parameters.Add("@currency", SqlDbType.Char, 3).Value = request.Amount.Currency;
-        command.Parameters.Add("@is_refundable", SqlDbType.Bit).Value = request.IsRefundable;
-        command.Parameters.Add("@expiration_date", SqlDbType.DateTime2).Value =
-            (object?)request.ExpirationUtc ?? DBNull.Value;
-
-        try
-        {
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            await reader.ReadAsync(cancellationToken);
-            return ReadReceipt(reader);
-        }
-        catch (SqlException ex) when (ex.Number == WalletNotFoundError)
-        {
-            throw new WalletNotFoundException(walletPublicId);
-        }
+        return await ExecuteCreditAsync(connection, transaction: null, walletPublicId, request, cancellationToken);
     }
 
     public async Task<IReadOnlyList<CurrencyBalance>> GetBalancesAsync(
@@ -138,7 +118,86 @@ public sealed class WalletRepository : IWalletRepository
         CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.CreateOpenAsync(cancellationToken);
+        return await ExecuteDebitAsync(connection, transaction: null, walletPublicId, request, asOfUtc, cancellationToken);
+    }
+
+    public async Task<TransferReceipt> TransferAsync(
+        Guid sourcePublicId,
+        Guid destinationPublicId,
+        TransferRequest request,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateOpenAsync(cancellationToken);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Both operations share one transaction: the debit from the source and the credit to the
+            // destination either commit together or not at all. The same event_id makes the whole
+            // transfer idempotent (a replay finds both rows already present and adds nothing).
+            var debit = await ExecuteDebitAsync(
+                connection, transaction, sourcePublicId,
+                new DebitRequest(request.EventId, request.Amount, DebitKind.Spend), asOfUtc, cancellationToken);
+
+            var credit = await ExecuteCreditAsync(
+                connection, transaction, destinationPublicId,
+                new CreditRequest(request.EventId, request.Amount, IsRefundable: true), cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+            return new TransferReceipt(
+                request.EventId, request.Amount, sourcePublicId, destinationPublicId,
+                debit, credit, debit.Replayed && credit.Replayed);
+        }
+        catch
+        {
+            // A failing proc may already have rolled the transaction back (XACT_ABORT), so this is
+            // best effort. Either way nothing from the transfer is committed.
+            await TryRollbackAsync(transaction, cancellationToken);
+            throw;
+        }
+    }
+
+    private static async Task<CreditReceipt> ExecuteCreditAsync(
+        SqlConnection connection,
+        SqlTransaction? transaction,
+        Guid walletPublicId,
+        CreditRequest request,
+        CancellationToken cancellationToken)
+    {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandType = CommandType.StoredProcedure;
+        command.CommandText = "dbo.usp_CreditWallet";
+        command.Parameters.Add("@wallet_public_id", SqlDbType.UniqueIdentifier).Value = walletPublicId;
+        command.Parameters.Add("@event_id", SqlDbType.UniqueIdentifier).Value = request.EventId;
+        command.Parameters.Add("@amount", SqlDbType.Decimal).Value = request.Amount.Amount;
+        command.Parameters.Add("@currency", SqlDbType.Char, 3).Value = request.Amount.Currency;
+        command.Parameters.Add("@is_refundable", SqlDbType.Bit).Value = request.IsRefundable;
+        command.Parameters.Add("@expiration_date", SqlDbType.DateTime2).Value =
+            (object?)request.ExpirationUtc ?? DBNull.Value;
+
+        try
+        {
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            await reader.ReadAsync(cancellationToken);
+            return ReadReceipt(reader);
+        }
+        catch (SqlException ex) when (ex.Number == WalletNotFoundError)
+        {
+            throw new WalletNotFoundException(walletPublicId);
+        }
+    }
+
+    private static async Task<DebitReceipt> ExecuteDebitAsync(
+        SqlConnection connection,
+        SqlTransaction? transaction,
+        Guid walletPublicId,
+        DebitRequest request,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandType = CommandType.StoredProcedure;
         command.CommandText = "dbo.usp_DebitWallet";
         command.Parameters.Add("@wallet_public_id", SqlDbType.UniqueIdentifier).Value = walletPublicId;
@@ -178,6 +237,18 @@ public sealed class WalletRepository : IWalletRepository
         catch (SqlException ex) when (ex.Number == InsufficientFundsError)
         {
             throw new InsufficientFundsException(walletPublicId, request.Amount);
+        }
+    }
+
+    private static async Task TryRollbackAsync(SqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await transaction.RollbackAsync(cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            // The transaction was already rolled back by the server (XACT_ABORT). Nothing to undo.
         }
     }
 
