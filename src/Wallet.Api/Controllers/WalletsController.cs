@@ -82,6 +82,58 @@ public sealed class WalletsController : ControllerBase
         return Ok(balances.Select(b => new BalanceResponse(b.Currency, b.Available)));
     }
 
+    /// <summary>Debits a wallet, drawing from bags oldest-expiring first. Idempotent on <c>EventId</c>.</summary>
+    [HttpPost("{publicId:guid}/debits")]
+    public async Task<ActionResult<DebitResponse>> Debit(
+        Guid publicId,
+        DebitWalletRequest request,
+        CancellationToken cancellationToken)
+    {
+        Money amount;
+        try
+        {
+            amount = Money.Create(request.Amount, request.Currency);
+        }
+        catch (MoneyException ex)
+        {
+            return ValidationProblem(ex.Message);
+        }
+
+        var debitRequest = new DebitRequest(request.EventId, amount, request.Kind);
+
+        try
+        {
+            var receipt = await _wallets.DebitAsync(publicId, debitRequest, DateTime.UtcNow, cancellationToken);
+            return Ok(ToResponse(receipt));
+        }
+        catch (WalletNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InsufficientFundsException ex)
+        {
+            return Problem(detail: ex.Message, statusCode: StatusCodes.Status409Conflict);
+        }
+    }
+
+    /// <summary>Gets the wallet's movements (credits and debits) in time order.</summary>
+    [HttpGet("{publicId:guid}/statement")]
+    public async Task<ActionResult<IEnumerable<StatementEntryResponse>>> Statement(
+        Guid publicId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var entries = await _wallets.GetStatementAsync(publicId, cancellationToken);
+            return Ok(entries.Select(e => new StatementEntryResponse(
+                e.Type.ToString(), e.EntryId, e.EventId, e.Amount.Amount, e.Amount.Currency, e.Kind, e.CreatedAtUtc)));
+        }
+        catch (WalletNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
     private static WalletResponse ToResponse(WalletAccount wallet) => new(
         wallet.PublicId, wallet.UserId, wallet.Metadata, wallet.CreatedAtUtc, wallet.DeletedAtUtc);
 
@@ -94,4 +146,14 @@ public sealed class WalletsController : ControllerBase
         receipt.ExpirationUtc,
         receipt.CreatedAtUtc,
         receipt.Replayed);
+
+    private static DebitResponse ToResponse(DebitReceipt receipt) => new(
+        receipt.DebitId,
+        receipt.EventId,
+        receipt.Amount.Amount,
+        receipt.Amount.Currency,
+        receipt.Kind,
+        receipt.CreatedAtUtc,
+        receipt.Replayed,
+        receipt.Allocations.Select(a => new DebitAllocationResponse(a.CreditId, a.Amount)).ToList());
 }
