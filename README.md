@@ -5,6 +5,8 @@
 ![SQL Server 2022](https://img.shields.io/badge/SQL%20Server-2022-CC2927?logo=microsoftsqlserver&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+**English** · [Português (Brasil)](README.pt-br.md)
+
 A standalone wallet and store-credit service. It is a C# / .NET 8 Web API backed by SQL Server,
 written to show depth in **SQL, raw ADO.NET and stored procedures** on the paths that move money.
 
@@ -20,6 +22,8 @@ transaction for transfers and a covering index whose value is measured, not assu
 - [The data model](#the-data-model)
 - [The money paths and their guarantees](#the-money-paths-and-their-guarantees)
 - [Stored procedures](#stored-procedures)
+- [When to reach for a stored procedure](#when-to-reach-for-a-stored-procedure)
+- [Security: two database logins](#security-two-database-logins)
 - [Schema versioning](#schema-versioning)
 - [Performance: the covering index, measured](#performance-the-covering-index-measured)
 - [API](#api)
@@ -167,6 +171,68 @@ The money mutations are stored procedures, called over ADO.NET:
 
 The definitions live in [`db/migrations`](db/migrations) as numbered scripts.
 
+## When to reach for a stored procedure
+
+Stored procedures are not the default here. Reads are hand-written SQL, and a plain insert like
+creating a wallet is raw SQL too. Only the money mutations are procedures, for two concrete reasons
+that this project made tangible.
+
+**1. To keep a complex, concurrent, multi-statement operation atomic and server-side.**
+`usp_DebitWallet` justifies procedures on its own. A debit is not one statement: it locks the wallet
+row, selects the candidate bags (right currency, not expired, refundable-only for a withdrawal)
+oldest-expiring-first, computes how much to take from each with a set-based running total, inserts the
+debit and its allocations, and throws if the bags cannot cover the amount. All of it has to be one
+atomic unit under a lock. Run from the application, that is several round trips with a transaction and
+its locks held open across the network the whole time. As a procedure it runs in a single call, so
+the critical section stays on the server and locks are held for microseconds instead of milliseconds.
+The concurrency tests, which fire many debits at the same instant, pass because of this.
+
+**2. As a least-privilege boundary, defense in depth.**
+Because a procedure and the tables it touches share the `dbo` owner, ownership chaining lets the
+runtime login run the procedure with only `EXECUTE` and no direct table grant. So a compromised
+application connection cannot run `DELETE FROM wallet_credits`: it simply has no `DELETE` right. This
+is defense in depth, not the primary guard against SQL injection (parameterized ADO.NET already covers
+that), but it is a real second wall around the money ledger. See
+[Security: two database logins](#security-two-database-logins).
+
+**The lesson this project taught.** I first granted the runtime login `EXECUTE` only, expecting
+procedures to be the whole story. The integration tests failed at once: the raw-SQL reads and
+`CreateWalletAsync` still needed `SELECT` and `INSERT`. The least-privilege benefit of procedures is
+real but all-or-nothing: you get an `EXECUTE`-only login only if every path goes through a procedure.
+Here the balance read is deliberately hand-written and tuned (see
+[Performance](#performance-the-covering-index-measured)), so the login keeps a narrow set of table
+grants and the money ledger stays procedure-only for writes.
+
+**When not to.** Creating a wallet is a single-row insert with no invariant to protect and no
+concurrency to serialize, so it stays raw SQL. Wrapping trivial statements in procedures scatters
+logic between the application and the database for no gain. A procedure earns its place when it
+protects an invariant, serializes access, or collapses a multi-statement operation into one atomic
+call.
+
+## Security: two database logins
+
+The database is reached through two SQL Server logins with different privilege, so the application
+never runs with rights it does not need.
+
+- **Migrations** run under a privileged login (`sa` in development), from
+  `WalletDatabase:MigrationConnectionString`, because they issue DDL and create the runtime login.
+- **The API at runtime** uses a separate `wallet_app` login, from `WalletDatabase:ConnectionString`
+  and created by migration `006`. When no migration connection string is set it falls back to the
+  runtime one, so a single-login setup still works.
+
+`wallet_app` is granted only what the runtime data access actually uses:
+
+| Object | Grant | Used by |
+|---|---|---|
+| `usp_CreditWallet`, `usp_DebitWallet`, `usp_GetWalletStatement` | `EXECUTE` | credit, debit, transfer, statement |
+| `wallets` | `SELECT`, `INSERT` | get wallet, balance read, transfer lock, create wallet |
+| `wallet_credits` | `SELECT` | balance read |
+| `wallet_debit_allocations` | `SELECT` | balance read |
+
+It has no DDL and no `UPDATE` or `DELETE` anywhere, which matches the append-only design. Every credit
+and debit goes through a procedure, so the login has no direct write to the money ledger, and it
+cannot touch `wallet_debits` at all except by reading a statement through `usp_GetWalletStatement`.
+
 ## Schema versioning
 
 A hand-rolled ADO.NET **migration runner** applies numbered `.sql` scripts (tables, procedures and
@@ -174,14 +240,6 @@ indexes) in order, each inside its own `SqlTransaction`. It records every applie
 `__schema_versions` with a SHA-256 checksum, and re-verifies that checksum on later runs so an
 edited migration fails loudly. It also creates the target database on first run, so a fresh SQL
 Server needs no manual setup. The API applies pending migrations on startup.
-
-**Two logins, least privilege.** Migrations run under a privileged login (`sa` in development,
-`WalletDatabase:MigrationConnectionString`) because they issue DDL. The API's runtime data access
-uses a separate `wallet_app` login (`WalletDatabase:ConnectionString`), created by migration `006`,
-granted only what the runtime actually uses: `EXECUTE` on the three wallet procedures, `SELECT` on
-the read tables and `INSERT` on `wallets`. It has no DDL, no `UPDATE`/`DELETE` anywhere (matching the
-append-only design), and no direct write to the money ledger: every credit and debit goes through a
-procedure, and it cannot touch `wallet_debits` at all except by reading a statement.
 
 ## Performance: the covering index, measured
 
@@ -268,6 +326,7 @@ docker exec -i wallet-sqlserver /opt/mssql-tools18/bin/sqlcmd \
 ```
 wallet/
   README.md
+  README.pt-br.md             this document, in Brazilian Portuguese
   PLAN.md                     build plan and milestones
   docker-compose.yml          SQL Server, and the API behind the "app" profile
   docs/                       schema.md, execution-plans/, adr/
