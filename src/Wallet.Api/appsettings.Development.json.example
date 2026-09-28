@@ -6,6 +6,7 @@
     }
   },
   "WalletDatabase": {
-    "ConnectionString": "Server=127.0.0.1,1433;Database=WalletDb;User Id=sa;Password=YOUR_SA_PASSWORD;TrustServerCertificate=True;Encrypt=False"
+    "ConnectionString": "Server=127.0.0.1,1433;Database=WalletDb;User Id=wallet_app;Password=WalletApp!Dev2026;TrustServerCertificate=True;Encrypt=False",
+    "MigrationConnectionString": "Server=127.0.0.1,1433;Database=WalletDb;User Id=sa;Password=YOUR_SA_PASSWORD;TrustServerCertificate=True;Encrypt=False"
   }
 }
