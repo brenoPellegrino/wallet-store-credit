@@ -17,6 +17,11 @@ public sealed class DatabaseFixture : IAsyncLifetime
     private const string Server = "127.0.0.1,1433";
     private const string TestDatabase = "WalletDb_Test";
 
+    // The least-privilege runtime login created by migration 006. Tests run the API against it so the
+    // EXECUTE grants are exercised for real, while migrations still run under the admin login.
+    private const string AppUser = "wallet_app";
+    private const string AppPassword = "WalletApp!Dev2026";
+
     private WebApplicationFactory<Program>? _factory;
 
     public bool Available { get; private set; }
@@ -32,21 +37,33 @@ public sealed class DatabaseFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var connectionString = ResolveConnectionString();
-        if (connectionString is null)
+        var migrationConnection = ResolveConnectionString();
+        if (migrationConnection is null)
         {
             SkipReason = "No SA password found. Set MSSQL_SA_PASSWORD or WALLET_TEST_CONNECTION, or create .env.";
             return;
         }
 
-        if (!await ServerIsReachableAsync(connectionString))
+        if (!await ServerIsReachableAsync(migrationConnection))
         {
             SkipReason = $"SQL Server is not reachable at {Server}. Start it with 'docker compose up -d'.";
             return;
         }
 
+        // Migrations run under the admin login; the API's runtime data access runs under wallet_app.
+        // When an explicit test connection is supplied we reuse it for both, since we cannot assume
+        // wallet_app exists on that target.
+        var runtimeConnection =
+            !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WALLET_TEST_CONNECTION"))
+                ? migrationConnection
+                : new SqlConnectionStringBuilder(migrationConnection)
+                {
+                    UserID = AppUser,
+                    Password = AppPassword,
+                }.ConnectionString;
+
         // Startup runs EnsureDatabaseExistsAsync + migrations against WalletDb_Test.
-        _factory = new WalletApiFactory(connectionString);
+        _factory = new WalletApiFactory(runtimeConnection, migrationConnection);
         _ = _factory.Services;
         Available = true;
     }
@@ -134,9 +151,14 @@ public sealed class DatabaseFixture : IAsyncLifetime
 
     private sealed class WalletApiFactory : WebApplicationFactory<Program>
     {
-        private readonly string _connectionString;
+        private readonly string _runtimeConnectionString;
+        private readonly string _migrationConnectionString;
 
-        public WalletApiFactory(string connectionString) => _connectionString = connectionString;
+        public WalletApiFactory(string runtimeConnectionString, string migrationConnectionString)
+        {
+            _runtimeConnectionString = runtimeConnectionString;
+            _migrationConnectionString = migrationConnectionString;
+        }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -144,7 +166,8 @@ public sealed class DatabaseFixture : IAsyncLifetime
             builder.ConfigureAppConfiguration((_, config) =>
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["WalletDatabase:ConnectionString"] = _connectionString,
+                    ["WalletDatabase:ConnectionString"] = _runtimeConnectionString,
+                    ["WalletDatabase:MigrationConnectionString"] = _migrationConnectionString,
                 }));
         }
     }

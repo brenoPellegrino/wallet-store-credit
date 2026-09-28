@@ -40,8 +40,10 @@ services:
         condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      # Reaches SQL Server by service name on the compose network; password comes from .env.
-      WalletDatabase__ConnectionString: "Server=sqlserver,1433;Database=WalletDb;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True;Encrypt=False"
+      # Reaches SQL Server by service name on the compose network. Runtime uses the least-privilege
+      # wallet_app login (created by migration 006); migrations use sa, whose password comes from .env.
+      WalletDatabase__ConnectionString: "Server=sqlserver,1433;Database=WalletDb;User Id=wallet_app;Password=WalletApp!Dev2026;TrustServerCertificate=True;Encrypt=False"
+      WalletDatabase__MigrationConnectionString: "Server=sqlserver,1433;Database=WalletDb;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True;Encrypt=False"
     ports:
       - "8080:8080"
     restart: on-failure

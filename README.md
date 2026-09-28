@@ -175,6 +175,14 @@ indexes) in order, each inside its own `SqlTransaction`. It records every applie
 edited migration fails loudly. It also creates the target database on first run, so a fresh SQL
 Server needs no manual setup. The API applies pending migrations on startup.
 
+**Two logins, least privilege.** Migrations run under a privileged login (`sa` in development,
+`WalletDatabase:MigrationConnectionString`) because they issue DDL. The API's runtime data access
+uses a separate `wallet_app` login (`WalletDatabase:ConnectionString`), created by migration `006`,
+granted only what the runtime actually uses: `EXECUTE` on the three wallet procedures, `SELECT` on
+the read tables and `INSERT` on `wallets`. It has no DDL, no `UPDATE`/`DELETE` anywhere (matching the
+append-only design), and no direct write to the money ledger: every credit and debit goes through a
+procedure, and it cannot touch `wallet_debits` at all except by reading a statement.
+
 ## Performance: the covering index, measured
 
 The balance read is an expiration-filtered per-currency aggregate. A covering index,
@@ -236,7 +244,7 @@ Prerequisites: Docker, and .NET 8 SDK if you want to run the API outside a conta
 ```bash
 cp .env.example .env                        # set MSSQL_SA_PASSWORD
 cp src/Wallet.Api/appsettings.Development.json.example \
-   src/Wallet.Api/appsettings.Development.json   # put the same password in the connection string
+   src/Wallet.Api/appsettings.Development.json   # put your SA password in MigrationConnectionString
 
 # Option A: the whole system in Docker (no .NET needed)
 docker compose --profile app up --build     # -> http://localhost:8080/swagger

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Wallet.Core.Abstractions;
 using Wallet.Infrastructure.Configuration;
 using Wallet.Infrastructure.Data;
@@ -20,8 +21,23 @@ public static class DependencyInjection
         services.Configure<WalletDatabaseOptions>(
             configuration.GetSection(WalletDatabaseOptions.SectionName));
 
-        services.AddSingleton<ISqlConnectionFactory, SqlConnectionFactory>();
-        services.AddSingleton<IDatabaseMigrator, DatabaseMigrator>();
+        // Runtime data access (the repository and the health probe) uses the least-privilege
+        // application login, which only has EXECUTE on the wallet stored procedures.
+        services.AddSingleton<ISqlConnectionFactory>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<WalletDatabaseOptions>>().Value;
+            return new SqlConnectionFactory(options.ConnectionString);
+        });
+
+        // Migrations run DDL and create the runtime login, so they connect with the privileged
+        // migration login (falling back to the runtime one when none is configured separately).
+        services.AddSingleton<IDatabaseMigrator>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<WalletDatabaseOptions>>().Value;
+            var migrationFactory = new SqlConnectionFactory(options.MigrationConnectionStringOrDefault);
+            return new DatabaseMigrator(migrationFactory);
+        });
+
         services.AddScoped<IWalletRepository, WalletRepository>();
 
         return services;

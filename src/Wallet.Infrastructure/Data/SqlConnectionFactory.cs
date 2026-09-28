@@ -1,5 +1,4 @@
 using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Options;
 using Wallet.Infrastructure.Configuration;
 
 namespace Wallet.Infrastructure.Data;
@@ -9,16 +8,15 @@ public sealed class SqlConnectionFactory : ISqlConnectionFactory
 {
     private readonly string _connectionString;
 
-    public SqlConnectionFactory(IOptions<WalletDatabaseOptions> options)
+    public SqlConnectionFactory(string connectionString)
     {
-        var value = options.Value.ConnectionString;
-        if (string.IsNullOrWhiteSpace(value))
+        if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException(
                 $"Missing connection string. Set {WalletDatabaseOptions.SectionName}:ConnectionString in configuration.");
         }
 
-        _connectionString = value;
+        _connectionString = connectionString;
     }
 
     public string ConnectionString => _connectionString;
